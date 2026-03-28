@@ -1,45 +1,33 @@
-import asyncio
+\import asyncio
 import websockets
 import json
-from flask import Flask, request, jsonify
+import os
+from flask import Flask, jsonify
 import threading
-
-# =========================
-# GLOBAL CONNECTION STORE
-# =========================
 
 connected_clients = {}
 
 # =========================
-# WEBSOCKET SERVER
+# WEBSOCKET HANDLER
 # =========================
 
 async def handle_client(websocket):
-
     device_id = None
 
     try:
         async for message in websocket:
-
             data = json.loads(message)
 
-            # REGISTER DEVICE
             if data.get("type") == "register":
                 device_id = data.get("device_id")
                 connected_clients[device_id] = websocket
-
                 print(f"[Cloud] Device connected: {device_id}")
 
-            # FORWARD COMMAND
             elif data.get("type") == "command":
-
                 target_id = data.get("target_id")
 
                 if target_id in connected_clients:
-                    target_ws = connected_clients[target_id]
-
-                    await target_ws.send(json.dumps(data))
-
+                    await connected_clients[target_id].send(json.dumps(data))
                     print(f"[Cloud] Command forwarded to {target_id}")
 
     except:
@@ -51,17 +39,15 @@ async def handle_client(websocket):
             print(f"[Cloud] Device disconnected: {device_id}")
 
 
-async def start_ws_server():
-    print("[Cloud] WebSocket running on port 8765")
-    async with websockets.serve(handle_client, "0.0.0.0", 8765):
-        await asyncio.Future()  # run forever
-
-
 # =========================
-# HTTP SERVER (OPTIONAL)
+# FLASK APP
 # =========================
 
 app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Zephyr Cloud Running 🚀"
 
 @app.route("/status")
 def status():
@@ -70,18 +56,27 @@ def status():
     })
 
 
-def start_http():
-    print("[Cloud] HTTP running on port 6000")
-    app.run(host="0.0.0.0", port=6000)
+# =========================
+# RUN SERVERS (SINGLE PORT)
+# =========================
+
+def start_flask(port):
+    app.run(host="0.0.0.0", port=port)
 
 
-# =========================
-# MAIN
-# =========================
+async def start_websocket(port):
+    async with websockets.serve(handle_client, "0.0.0.0", port):
+        print(f"[Cloud] WebSocket running on port {port}")
+        await asyncio.Future()
+
 
 def main():
-    threading.Thread(target=start_http, daemon=True).start()
-    asyncio.run(start_ws_server())
+    port = int(os.environ.get("PORT", 10000))
+
+    print(f"[Cloud] Running on port {port}")
+
+    threading.Thread(target=start_flask, args=(port,), daemon=True).start()
+    asyncio.run(start_websocket(port))
 
 
 if __name__ == "__main__":
